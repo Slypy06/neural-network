@@ -40,9 +40,9 @@ def main():
     run_parser.add_argument("--folder", action="store_true")
     run_parser.add_argument("--full", action="store_true")
 
-    render_parser = subparsers.add_parser("render")
+    """render_parser = subparsers.add_parser("render")
     render_parser.add_argument("--model", type=str, default="neural_network.wgt")
-    render_parser.add_argument("--input", type=str, default="input.dat")
+    render_parser.add_argument("--input", type=str, default="input.dat")"""
 
     extract_parser = subparsers.add_parser("extract")
     extract_parser.add_argument("--data", type=str, default="test_data")
@@ -97,7 +97,7 @@ def test(args):
             predicted = int(np.argmax(result))
         else:
             expected = np.asarray(class_to_binary(label)).ravel()
-            predicted = int(binary_to_class((result > 0.5).astype(int)))
+            predicted = binary_to_class(result)
 
         total_sse += np.sum((result - expected) ** 2)
 
@@ -301,9 +301,8 @@ def run_file(model, path, full):
         predicted = int(np.argmax(output))
         interpretation = f"class {predicted} ('{emnist_class_to_char(predicted)}') with confidence {100 * output[predicted]:.2f}%"
     else:
-        bits = (output > 0.5).astype(int)
-        predicted = int(binary_to_class(bits))
-        interpretation = f"bits {bits.tolist()} -> class {predicted} ('{emnist_class_to_char(predicted)}')"
+        predicted = binary_to_class(output)   # raw outputs, no thresholding
+        interpretation = f"outputs {np.round(output, 3).tolist()} -> class {predicted} ('{emnist_class_to_char(predicted)}')"
 
     match = predicted == label
 
@@ -618,19 +617,16 @@ def class_to_binary(label): #convert a class id (0-62) to a binary vector with a
     return ENCODING_MAP[label]
 
 def binary_to_class(vector):
+    """Return the class whose codeword is closest to `vector`.
+    `vector` can hold raw sigmoid outputs in [0, 1]; no thresholding is needed."""
+    vector = np.asarray(vector, dtype=np.float32).ravel()
 
     if len(vector) != 10:
-     raise ValueError("Invalid binary vector length")
+        raise ValueError("Invalid binary vector length")
 
-    min = (ENCODING_MAP[0], sum(np.bitwise_xor(ENCODING_MAP[0], vector)))
-    for elem in ENCODING_MAP[1:]:
-        diff = sum(np.bitwise_xor(elem, vector))
-        if diff == 0:
-            return ENCODING_MAP.index(elem)
-        if diff < min[1]:
-            min = (elem,diff)
-
-    return ENCODING_MAP.index(min[0])
+    # Squared Euclidean distance to every codeword at once
+    distances = np.sum((np.array(ENCODING_MAP, dtype=np.float32) - vector) ** 2, axis=1)
+    return int(np.argmin(distances))
 
 class Model:
     def __init__(self, layers, input_size, output_size, output_mode, activation, leaky_relu_coef=0.01, weights=None, biases=None):
